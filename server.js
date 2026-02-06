@@ -1,207 +1,144 @@
-const express = require("express");
-const cors = require("cors");
-const axios = require("axios");
-const path = require("path");
-const WebSocket = require("ws");
+from flask import Flask, jsonify, request, send_from_directory
+from flask_cors import CORS
+import yfinance as yf
+import os
 
-const app = express();
+# -----------------------------
+# Flask Setup
+# -----------------------------
+app = Flask(__name__, static_folder="public")
+CORS(app)
 
-app.use(cors());
-app.use(express.json());
-app.use(express.static("public"));
-
-const PORT = process.env.PORT || 3000;
-
-// ⭐ Put NEW Finnhub API key here
-const FINNHUB_KEY = "d633h51r01qnpqnvm2t0d633h51r01qnpqnvm2tg";
+# PORT = 3000
+# const PORT = process.env.PORT || 3000;
 
 
-// -----------------------------
-// Portfolio (Memory)
-// -----------------------------
-let portfolio = [];
+PORT = int(os.environ.get("PORT", 3000))
+
+# -----------------------------
+# Demo Portfolio (Memory Only)
+# -----------------------------
+portfolio = []
+
+# -----------------------------
+# Stock List
+# -----------------------------
+stocks = [
+    "RELIANCE.NS",
+    "TCS.NS",
+    "INFY.NS",
+    "HDFCBANK.NS",
+    "ICICIBANK.NS",
+    "ITC.NS"
+]
+
+# -----------------------------
+# Serve Frontend
+# -----------------------------
+@app.route("/")
+def serve_frontend():
+    return send_from_directory(app.static_folder, "index.html")
+
+@app.route("/<path:path>")
+def serve_static_files(path):
+    return send_from_directory(app.static_folder, path)
 
 
-// -----------------------------
-// Stock List
-// -----------------------------
-const stocks = [
-  "RELIANCE.NS",
-  "TCS.NS",
-  "INFY.NS",
-  "HDFCBANK.NS",
-  "ICICIBANK.NS",
-  "ITC.NS"
-];
+# -----------------------------
+# Get Live Stock Prices
+# -----------------------------
+@app.route("/stocks", methods=["GET"])
+def get_stocks():
+
+    try:
+        result = []
+
+        for symbol in stocks:
+            ticker = yf.Ticker(symbol)
+
+            # Try getting current price
+            price = ticker.info.get("currentPrice")
+
+            # Fallback if currentPrice missing
+            print(price)
+            if price is None:
+                price = ticker.fast_info.get("last_price")
+
+            result.append({
+                "name": symbol,
+                "price": price,
+                
+            })
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
-// ------------------------------------------------
-// NSE FALLBACK (Accurate Indian Data)
-// ------------------------------------------------
-async function fetchFromNSE(symbol) {
+# -----------------------------
+# Get Portfolio
+# -----------------------------
+@app.route("/portfolio", methods=["GET"])
+def get_portfolio():
+    
+    print(portfolio)
+    return jsonify(portfolio)
 
-  try {
 
-    const cleanSymbol = symbol.replace(".NS", "");
+# -----------------------------
+# Buy Stock
+# -----------------------------
+@app.route("/buy", methods=["POST"])
+def buy_stock():
 
-    const response = await axios.get(
-      `https://www.nseindia.com/api/quote-equity?symbol=${cleanSymbol}`,
-      {
-        headers: {
-          "User-Agent": "Mozilla/5.0"
+    try:
+        data = request.get_json()
+
+        stock = {
+            "name": data["name"],
+            "price": data["price"]
         }
-      }
-    );
 
-    return response.data.priceInfo.lastPrice;
+        portfolio.append(stock)
 
-  } catch {
-    return null;
-  }
-}
+        return jsonify({
+            "message": "Stock Bought Successfully",
+            "portfolio": portfolio
+        })
 
-
-// ------------------------------------------------
-// REST API → Initial Stock Load
-// ------------------------------------------------
-app.get("/stocks", async (req, res) => {
-
-  try {
-
-    const result = await Promise.all(
-      stocks.map(async (symbol) => {
-
-        let price = null;
-
-        // Try Finnhub first
-        try {
-          const response = await axios.get(
-            `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${FINNHUB_KEY}`
-          );
-
-          price = response.data.c;
-        } catch {}
-
-        // Fallback NSE
-        if (!price) {
-          price = await fetchFromNSE(symbol);
-        }
-
-        return {
-          name: symbol,
-          price
-        };
-      })
-    );
-
-    res.json(result);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 
-// ------------------------------------------------
-// Portfolio APIs
-// ------------------------------------------------
-app.get("/portfolio", (req, res) => res.json(portfolio));
+# -----------------------------
+# Sell Stock
+# -----------------------------
+@app.route("/sell", methods=["POST"])
+def sell_stock():
 
-app.post("/buy", (req, res) => {
+    try:
+        data = request.get_json()
+        stock_name = data["name"]
 
-  portfolio.push(req.body);
+        global portfolio
+        portfolio = [s for s in portfolio if s["name"] != stock_name]
 
-  res.json({
-    message: "Stock Bought Successfully",
-    portfolio
-  });
-});
+        return jsonify({
+            "message": "Stock Sold Successfully",
+            "portfolio": portfolio
+        })
 
-app.post("/sell", (req, res) => {
-
-  portfolio = portfolio.filter(
-    s => s.name !== req.body.name
-  );
-
-  res.json({
-    message: "Stock Sold Successfully",
-    portfolio
-  });
-});
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 
-// ------------------------------------------------
-// SINGLE Finnhub WebSocket Connection
-// ------------------------------------------------
-const wss = new WebSocket.Server({ port: 4000 });
+# -----------------------------
+# Run Server
+# -----------------------------
+if __name__ == "__main__":
+    
+    app.run(host="0.0.0.0", port=PORT)
 
-let clients = [];
+    # app.run(port=PORT, debug=True)
 
-const finnhubSocket = new WebSocket(
-  `wss://ws.finnhub.io?token=${FINNHUB_KEY}`
-);
-
-
-// Connect to Finnhub once
-finnhubSocket.on("open", () => {
-
-  console.log("Connected to Finnhub WebSocket");
-
-  stocks.forEach(symbol => {
-
-    finnhubSocket.send(
-      JSON.stringify({
-        type: "subscribe",
-        symbol
-      })
-    );
-
-  });
-});
-
-
-// Broadcast data to frontend clients
-finnhubSocket.on("message", (data) => {
-
-  clients.forEach(client => {
-
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(data.toString());
-    }
-
-  });
-
-});
-
-
-// Client connection handler
-wss.on("connection", (ws) => {
-
-  console.log("Frontend connected to WebSocket");
-
-  clients.push(ws);
-
-  ws.on("close", () => {
-    clients = clients.filter(c => c !== ws);
-  });
-
-});
-
-
-// ------------------------------------------------
-// SPA Fallback
-// ------------------------------------------------
-app.use((req, res) => {
-  res.sendFile(path.join(__dirname, "public/index.html"));
-});
-
-
-// ------------------------------------------------
-// Run Server
-// ------------------------------------------------
-app.listen(PORT, () => {
-
-  console.log("HTTP Server running on", PORT);
-  console.log("WebSocket running on 4000");
-
-});
