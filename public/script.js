@@ -2,7 +2,9 @@ const API = "http://localhost:3000";
 // const API = "https://stockmarket-8e8r.onrender.com";
 
 // Load stocks
+coun = 1
 async function loadStocks() {
+    coun++
     const res = await fetch(API + "/stocks");
     const data = await res.json();
 
@@ -12,6 +14,7 @@ async function loadStocks() {
     data.forEach(stock => {
         div.innerHTML += `
         <div class="stock">
+            <h3>${coun}</h3>
             <h3>${stock.name}</h3>
             <p>Price: ₹${stock.price}</p>
             <button onclick="buyStock('${stock.name}', ${stock.price})">
