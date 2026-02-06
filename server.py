@@ -28,6 +28,7 @@ stocks = [
     "TCS.NS",
     "INFY.NS",
     "HDFCBANK.NS",
+    "ICICIBANK.NS",
     "ITC.NS"
 ]
 
